@@ -59,7 +59,7 @@ def liftStandard : Arith →ᴸ OmegaArith := ⟨liftConsts, λ _ r ↦ r⟩
 
 instance standardModel : Structure Arith ℕ :=
   Structure.mk₂ (λ c ↦ c)
-    (λ h _ ↦ h.elim) (λ h _ _ ↦ h.elim) (λ h _ ↦ h.elim)
+    (λ h ↦ h.elim) (λ h ↦ h.elim) (λ h ↦ h.elim)
     (λ _ c₁ c₂ ↦ c₁ < c₂)
 
 open Sentence
@@ -76,16 +76,77 @@ def ArithTruths : Theory OmegaArith :=
 
 def lessThan : OmegaArith.Relations 2 := Unit.unit
 
-def OmegaGreater : Theory OmegaArith :=
-  λ φ ↦ ∃ n : ℕ,
-   φ = lessThan.formula₂ (Constants.term (NS.standard n)) (Constants.term NS.omega)
+def omegaGtN (n : ℕ) : Sentence OmegaArith :=
+  lessThan.formula₂ (Constants.term (NS.standard n)) (Constants.term NS.omega)
+
+def OmegaGreater : Theory OmegaArith := λ φ ↦ ∃ n : ℕ, φ = omegaGtN n
 
 def NonStandardLT := ArithTruths ∪ OmegaGreater
+
+def FinStruct' (omegaVal : ℕ): Structure OmegaArith ℕ :=
+  Structure.mk₂
+    (λ c ↦ match c with | .standard n => n | .omega => omegaVal)
+    (λ h ↦ h.elim)
+    (λ h ↦ h.elim)
+    (λ h ↦ h.elim)
+    (λ _ c₁ c₂ ↦ c₁ < c₂)
+
+#print Finset.max
+#print Finset.map
+
+noncomputable def getN (φ : Sentence OmegaArith) (isLt : φ ∈ OmegaGreater) : ℕ :=
+  Classical.choose isLt
+
+-- ugh a little awkard to define...
+noncomputable def coefs (φs : Finset (Sentence OmegaArith)) : Finset ℕ :=
+  Finset.image
+  (λ φ ↦
+  -- this is actually decidable...
+  let _ : Decidable (φ ∈ OmegaGreater) := Classical.dec _
+  if h : φ ∈ OmegaGreater then
+    getN φ h
+  else 0)
+  φs
+
+
+#print WithBot
+
+noncomputable def maxOmegaVal (φs : Finset (Sentence OmegaArith)) : ℕ :=
+  (coefs φs).max.getD 0
+
+noncomputable def FinStruct (φs : Finset (Sentence OmegaArith)) : Structure OmegaArith ℕ :=
+FinStruct' (maxOmegaVal φs)
+
+#check Model
+
+#print Structure
+
+lemma FinStructModel {T : Finset (Sentence OmegaArith)} :
+  ↑ T ⊆ OmegaGreater → S ⊆ ArithTruths → @Model _ _ (FinStruct φs) (T ∪ S) :=
+by
+  intros ltOmega ltArith
+  apply (@Model.mk _ _ (FinStruct φs))
+  intros φ mem
+  cases' mem with h h
+  . sorry
+  . sorry
+
+#print ModelType
+
+lemma FiniteOmageGreaterIsSat {T : Finset (Sentence OmegaArith)} :
+  ↑ T ⊆ OmegaGreater → S ⊆ ArithTruths → IsSatisfiable (T∪S):=
+by
+  intros lt_om lt_arith
+  constructor
+  apply (@ModelType.mk _ _ _ (FinStruct T) (FinStructModel _ _))
+  . trivial
+  . trivial
 
 lemma NonStandardFinite : IsFinitelySatisfiable NonStandardLT :=
 by
   simp [IsFinitelySatisfiable]
   intros T T_inc
+  simp [NonStandardLT] at T_inc
   sorry
 
 theorem NonStandardExists : IsSatisfiable NonStandardLT :=
