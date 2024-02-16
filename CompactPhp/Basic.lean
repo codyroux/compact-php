@@ -83,7 +83,10 @@ def OmegaGreater : Theory OmegaArith := λ φ ↦ ∃ n : ℕ, φ = omegaGtN n
 
 def NonStandardLT := ArithTruths ∪ OmegaGreater
 
-def FinStruct' (omegaVal : ℕ): Structure OmegaArith ℕ :=
+def NatWithFiniteOmega := ℕ deriving LT, Nonempty
+
+
+def FinStruct' (omegaVal : ℕ): Structure OmegaArith NatWithFiniteOmega :=
   Structure.mk₂
     (λ c ↦ match c with | .standard n => n | .omega => omegaVal)
     (λ h ↦ h.elim)
@@ -112,24 +115,75 @@ noncomputable def coefs (φs : Finset (Sentence OmegaArith)) : Finset ℕ :=
 #print WithBot
 
 noncomputable def maxOmegaVal (φs : Finset (Sentence OmegaArith)) : ℕ :=
-  (coefs φs).max.getD 0
+  if h : (coefs φs).Nonempty then (coefs φs).max' h + 1 else 0
 
-noncomputable def FinStruct (φs : Finset (Sentence OmegaArith)) : Structure OmegaArith ℕ :=
+noncomputable def FinStruct (φs : Finset (Sentence OmegaArith)) : Structure OmegaArith NatWithFiniteOmega :=
 FinStruct' (maxOmegaVal φs)
+
+instance NormalArith : Structure Arith NatWithFiniteOmega :=
+by
+  simp [NatWithFiniteOmega]
+  exact standardModel
+
 
 #check Model
 
 #print Structure
 
+#check Formula.realize_rel₂
+#check default
+#print LHom.IsExpansionOn
+#check Finset.le_max
+
+lemma getNOmega : getN (omegaGtN n) isLt = n :=
+by
+  simp [getN]
+  -- hmpf
+  sorry
+
 lemma FinStructModel {T : Finset (Sentence OmegaArith)} :
-  ↑ T ⊆ OmegaGreater → S ⊆ ArithTruths → @Model _ _ (FinStruct φs) (T ∪ S) :=
+  ↑ T ⊆ OmegaGreater → S ⊆ ArithTruths → @Model _ _ (FinStruct T) (T ∪ S)
+:=
 by
   intros ltOmega ltArith
-  apply (@Model.mk _ _ (FinStruct φs))
+  apply (@Model.mk _ _ (FinStruct T))
   intros φ mem
   cases' mem with h h
-  . sorry
-  . sorry
+  . have h' : φ ∈ OmegaGreater := by apply ltOmega; trivial
+    unfold OmegaGreater at h'
+    cases' h' with n h'
+    rw [h'] at h
+    rw [h']
+    simp [omegaGtN, Realize]
+    have inst : Structure OmegaArith NatWithFiniteOmega := FinStruct T
+    rw [Formula.realize_rel₂]
+    rw [Structure.relMap_apply₂]
+    simp [Term.realize, maxOmegaVal]
+    have nIsCoef : n ∈ coefs T :=
+    by
+      simp [coefs]
+      exists (omegaGtN n)
+      constructor
+      . apply h
+      . rw [dite_cond_eq_true] <;> try (simp; apply ltOmega; trivial)
+        apply getNOmega
+    have nonEmpty : (coefs T).Nonempty := by exists n
+    rw [dite_cond_eq_true] <;> try (simp; trivial)
+    suffices n ≤ (Finset.max' (coefs T)) nonEmpty
+    by -- what is the one liner here!!!?
+      apply Nat.lt_of_le_pred
+      simp [Nat.pred]
+      rw [Nat.pred_succ]
+      trivial
+    apply Finset.le_max'; trivial
+  . have h' : φ ∈ ArithTruths := by apply ltArith; trivial
+    unfold ArithTruths at h'
+    cases' h' with φ' h'
+    cases' h' with h₁ h₂
+    rw [← h₁]
+    have inst : Structure OmegaArith NatWithFiniteOmega := FinStruct T
+    rw [LHom.realize_onSentence]
+    sorry
 
 #print ModelType
 
