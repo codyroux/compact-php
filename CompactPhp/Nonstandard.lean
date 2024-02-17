@@ -5,8 +5,6 @@ open FirstOrder
 open FirstOrder.Language
 open FirstOrder.Language.Theory
 
-def hello := "world"
-
 section NonStandard
 
 -- The naturals extended with a non-standard element
@@ -42,16 +40,9 @@ instance standardModel : Structure Arith ℕ :=
     (λ _ c₁ c₂ ↦ c₁ < c₂)
 
 open Sentence
-variable (φ : Sentence Arith)
-#check (ℕ ⊨ φ)
 
 def ArithTruths : Theory OmegaArith :=
   λ φ ↦ ∃ φ' : Sentence Arith, LHom.onSentence liftStandard φ' = φ ∧ ℕ ⊨ φ'
-
-#check Term OmegaArith Empty
-#print Term
-#print Unit
-#print PUnit
 
 def lessThan : OmegaArith.Relations 2 := Unit.unit
 
@@ -62,11 +53,12 @@ def OmegaGreater : Theory OmegaArith := λ φ ↦ ∃ n : ℕ, φ = omegaGtN n
 
 def NonStandardLT := ArithTruths ∪ OmegaGreater
 
-def NatWithFiniteOmega (_omegaVal : ℕ) := ℕ
+def NatWithFiniteOmega (_omegaVal : ℕ) := ℕ -- deriving LT, Nonempty fails
 
 instance instLTNatOmega {n : ℕ}: LT (NatWithFiniteOmega n) := instLTNat
 
-instance instNonemptyNatOmega {n : ℕ} : Nonempty (NatWithFiniteOmega n) := (sorry : Nonempty ℕ)
+instance instNonemptyNatOmega {n : ℕ} : Nonempty (NatWithFiniteOmega n) :=
+  ⟨(0 : ℕ)⟩
 
 instance FinStruct' (omegaVal : ℕ): Structure OmegaArith (NatWithFiniteOmega omegaVal) :=
   Structure.mk₂
@@ -75,9 +67,6 @@ instance FinStruct' (omegaVal : ℕ): Structure OmegaArith (NatWithFiniteOmega o
     (λ h ↦ h.elim)
     (λ h ↦ h.elim)
     (λ _ c₁ c₂ ↦ c₁ < c₂)
-
-#print Finset.max
-#print Finset.map
 
 noncomputable def getN (φ : Sentence OmegaArith) (isLt : φ ∈ OmegaGreater) : ℕ :=
   Classical.choose isLt
@@ -94,8 +83,6 @@ noncomputable def coefs (φs : Finset (Sentence OmegaArith)) : Finset ℕ :=
   φs
 
 
-#print WithBot
-
 noncomputable def maxOmegaVal (φs : Finset (Sentence OmegaArith)) : ℕ :=
   if h : (coefs φs).Nonempty then (coefs φs).max' h + 1 else 0
 
@@ -109,30 +96,14 @@ by
   exact standardModel
 
 
-#check Model
-
-#print Structure
-
-#check Formula.realize_rel₂
-#check default
-#print LHom.IsExpansionOn
-#check Finset.le_max
-#check Classical.choose_spec
-
-#check Language.Constants
-
-#print OmegaArith
-
 lemma omegaGtN_inj : omegaGtN n = omegaGtN m → n = m :=
 by
   intros eq
-  injection eq
-  -- -- This isn't well typed!
-  -- let f := λ i ↦
-  --  Term.relabel Sum.inl
-  --  (Matrix.vecCons
-  --    (Constants.term (NS.standard n)) ![Constants.term NS.omega])
-  sorry
+  injection eq with hn hl hR hts
+  rw [Function.funext_iff] at hts
+  have := hts 0
+  simp at this  -- this is bad style; `simp?`'s output would be better
+  injection this
 
 
 lemma getNOmega : getN (omegaGtN n) isLt = n :=
@@ -145,9 +116,6 @@ by
   by
     apply @Classical.choose_spec _ (λ m ↦ omegaGtN n = omegaGtN m)
   apply omegaGtN_inj; rw [← h]
-
-
-#print Structure.funMap
 
 instance expantionFinOmega : LHom.IsExpansionOn liftStandard (NatWithFiniteOmega n) :=
 by
@@ -162,8 +130,8 @@ by
     cases' n with n
     . simp [Arith, Sequence₂]
       intros; trivial
-    . simp [Arith, Sequence₂]
-      sorry
+    . simp [Arith, Sequence₂]; intros R; simp at R
+      cases R
 
 lemma FinStructModel {T : Finset (Sentence OmegaArith)} :
   ↑ T ⊆ OmegaGreater → S ⊆ ArithTruths →
@@ -206,8 +174,6 @@ by
     simp [NatWithFiniteOmega]
     trivial
 
-#print ModelType
-
 lemma FiniteOmegaGreaterIsSat {T : Finset (Sentence OmegaArith)} :
   ↑T ⊆ OmegaGreater → S ⊆ ArithTruths → IsSatisfiable (T ∪ S):=
 by
@@ -228,11 +194,18 @@ by
   have is_union : ↑T = ↑GT_T ∪ Arith_T :=
   by
     apply Set.Subset.antisymm
-    . sorry
+    . intros φ inT
+      simp
+      by_cases φ ∈ OmegaGreater
+      . left; constructor <;> trivial
+      . right; constructor <;> try trivial
+        have h : φ ∈ ArithTruths ∪ OmegaGreater := by apply T_inc; trivial
+        cases h <;> trivial
     . intros φ union
-      cases union
-      . sorry
-      . sorry
+      cases' union with _ h
+      . apply @Finset.mem_of_mem_filter _ (. ∈ OmegaGreater)
+        trivial
+      . apply h.2
   rw [is_union]
   apply FiniteOmegaGreaterIsSat
   . simp [GT_T] -- adding Subset to this list causes a stack overflow!
