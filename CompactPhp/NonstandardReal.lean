@@ -8,11 +8,31 @@ open Real
 
 section NonStandard
 
--- The naturals extended with a non-standard element
+-- The reals extended with a non-standard element
+/-
+Not that crazy. We are used to having such a type in interval arithmetic
+Floats have +inf and -inf representable.
+We could define normal addition,subtraction functions
+over this stuff
+
+for exmaple
+def add x y :=
+ match x,y with
+  | +inf, _ => +inf
+  | _, +inf => +inf
+  | .standard x, .standard y => .standard (x + y)
+
+-/
 inductive NS :=
 | standard : ℝ → NS
 | omega : NS
 
+/-
+A goofy system for describing what function symbols we want
+Probably arbitrary to do it this way and probably
+designed around the good and bad of lean's facilities
+and modelling style.
+-/
 inductive RelNames :=
 | ltName : RelNames
 
@@ -21,21 +41,19 @@ inductive BinOpNames :=
 | timesName : BinOpNames
 | divName : BinOpNames
 
--- The language with all of ℕ as constants, and a single binary relation.
+-- The language with all of ℕ as constants (0 arity fun symbols),
+-- no single argument function symbols
+-- a couple binary functions
+
 def Arith : Language := Language.mk₂ ℕ Empty BinOpNames Empty RelNames
 
 -- The language with all of NS as constants, and a single binary relation.
 def OmegaArith : Language :=
 ⟨ λ n ↦ if n = 0 then NS else Arith.Functions n, Arith.Relations⟩
 
---cases'?
 lemma emptyFuncs : Arith.Functions (n + 3) → False :=
 by
-  simp [Arith]
-
-  --cases' n with n; simp [Arith, Sequence₂]
- -- cases' n with n; simp [Arith, Sequence₂]
- -- simp [Arith, Sequence₂]
+  simp [Arith] -- we need simp to unfold Arith.
 
 @[simp]
 def liftConsts (n : ℕ) : Arith.Functions n → OmegaArith.Functions n :=
@@ -43,6 +61,7 @@ def liftConsts (n : ℕ) : Arith.Functions n → OmegaArith.Functions n :=
   | 0 => λ (x : ℕ) ↦ NS.standard x
   | .succ m => λ (h : Arith.Functions (.succ m)) ↦ h -- how do I unfold the type here?
 
+-- possibly should use whatever lean mechanism auto lifts N to R?
 @[simp]
 def liftStandard : Arith →ᴸ OmegaArith := ⟨liftConsts, λ _ r ↦ r⟩
 
@@ -56,6 +75,17 @@ noncomputable instance standardModel : Structure Arith ℝ :=
 
 open Sentence
 
+-- A "theory" is a set of formulas
+#print Theory
+
+-- https://en.wikipedia.org/wiki/True_arithmetic
+-- The set of all nonstandard formulas such that
+-- they are injected from arith formulas which
+-- are satisfied in the standard model
+
+-- This notion is dependent on Lean's notion of provability of satsifiability
+
+
 def ArithTruths : Theory OmegaArith :=
   λ φ ↦ ∃ φ' : Sentence Arith, LHom.onSentence liftStandard φ' = φ ∧ ℝ ⊨ φ'
 
@@ -66,7 +96,6 @@ def omegaGtN (n : ℕ) : Sentence OmegaArith :=
 lessThan.formula₂ (Constants.term (NS.standard n)) (Constants.term NS.omega)
 
 
-#print Theory
 -- { "n < omega" | n ∈ ℕ }
 def OmegaGreater : Theory OmegaArith := omegaGtN '' (Set.univ : Set ℕ)
 -- { omegaGtN n | n : ℕ }
