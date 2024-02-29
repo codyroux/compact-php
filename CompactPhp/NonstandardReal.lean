@@ -9,24 +9,10 @@ open Real
 section NonStandard
 
 -- The reals extended with a non-standard element
-/-
-Not that crazy. We are used to having such a type in interval arithmetic
-Floats have +inf and -inf representable.
-We could define normal addition,subtraction functions
-over this stuff
-
-for exmaple
-def add x y :=
- match x,y with
-  | +inf, _ => +inf
-  | _, +inf => +inf
-  | .standard x, .standard y => .standard (x + y)
-
--/
 inductive NS :=
 | standard : ℝ → NS
-| omega : NS
-
+| ω : NS
+-- ω
 /-
 A goofy system for describing what function symbols we want
 Probably arbitrary to do it this way and probably
@@ -44,8 +30,7 @@ inductive BinOpNames :=
 -- The language with all of ℕ as constants (0 arity fun symbols),
 -- no single argument function symbols
 -- a couple binary functions
-
-def Arith : Language := Language.mk₂ ℕ Empty BinOpNames Empty RelNames
+def Arith : Language := Language.mk₂ ℚ Empty BinOpNames Empty RelNames
 
 -- The language with all of NS as constants, and a single binary relation.
 def OmegaArith : Language :=
@@ -53,12 +38,12 @@ def OmegaArith : Language :=
 
 lemma emptyFuncs : Arith.Functions (n + 3) → False :=
 by
-  simp [Arith] -- we need simp to unfold Arith.
+  simp only [Arith, mk₂_Functions, IsEmpty.forall_iff]
 
 @[simp]
 def liftConsts (n : ℕ) : Arith.Functions n → OmegaArith.Functions n :=
   match n with
-  | 0 => λ (x : ℕ) ↦ NS.standard x
+  | 0 => λ (x : ℚ) ↦ NS.standard x
   | .succ m => λ (h : Arith.Functions (.succ m)) ↦ h -- how do I unfold the type here?
 
 -- possibly should use whatever lean mechanism auto lifts N to R?
@@ -91,13 +76,12 @@ def ArithTruths : Theory OmegaArith :=
 
 def lessThan : OmegaArith.Relations 2 := .ltName
 
--- n < omega
+-- n < ω
 def omegaGtN (n : ℕ) : Sentence OmegaArith :=
-lessThan.formula₂ (Constants.term (NS.standard n)) (Constants.term NS.omega)
+lessThan.formula₂ (Constants.term (NS.standard n)) (Constants.term NS.ω)
 
-
--- { "n < omega" | n ∈ ℕ }
-def OmegaGreater : Theory OmegaArith := omegaGtN '' (Set.univ : Set ℕ)
+-- { "n < ω" | n ∈ ℕ }
+def OmegaGreater : Theory OmegaArith := Set.range omegaGtN
 -- { omegaGtN n | n : ℕ }
 -- λ φ ↦ ∃ n : ℕ, φ = omegaGtN n
 
@@ -106,20 +90,23 @@ def OmegaGreater : Theory OmegaArith := omegaGtN '' (Set.univ : Set ℕ)
 
 def NonStandardLT := ArithTruths ∪ OmegaGreater
 
-def NatWithFiniteOmega (_omegaVal : ℕ) := ℕ -- deriving LT, Nonempty fails
+def RWithFiniteOmega (_omegaVal : ℝ) := ℝ -- deriving LT, Nonempty fails
 
-instance instLTNatOmega {n : ℕ}: LT (NatWithFiniteOmega n) := instLTNat
+-- These instances just come from the underlying type.
+-- FIXME: how do we unfold the definition of `RWithFiniteOmega` to
+-- automatically synthesize these instances?
+instance instLTROmega {n : ℕ}: LT (RWithFiniteOmega n) := instLTReal
 
-instance instNonemptyNatOmega {n : ℕ} : Nonempty (NatWithFiniteOmega n) :=
-  ⟨(0 : ℕ)⟩
+instance instNonemptyROmega {n : ℕ} : Nonempty (RWithFiniteOmega n) :=
+  ⟨(0 : ℝ)⟩
 
-instance FinStruct' (omegaVal : ℕ): Structure OmegaArith (NatWithFiniteOmega omegaVal) :=
-  Structure.mk₂
-    (λ c ↦ match c with | .standard n => n | .omega => omegaVal)
-    (λ h ↦ h.elim)
-    (λ h ↦ h.elim)
-    (λ h ↦ h.elim)
-    (λ _ c₁ c₂ ↦ c₁ < c₂)
+noncomputable instance FinStruct' (omegaVal : ℝ): Structure OmegaArith (RWithFiniteOmega omegaVal) :=
+  Structure.mk
+  (λ {n} ↦ match n with
+    | 0 => λ c _ ↦ match c with | .standard x => x | .ω => omegaVal
+    -- kind of impressed it guesses here. Or am I wrong?
+    | _+1 => standardModel.funMap)
+  standardModel.RelMap
 
 noncomputable def getN (φ : Sentence OmegaArith) (isLt : φ ∈ OmegaGreater) : ℕ :=
   Classical.choose isLt
@@ -136,16 +123,16 @@ noncomputable def coefs (φs : Finset (Sentence OmegaArith)) : Finset ℕ :=
   φs
 
 
-noncomputable def maxOmegaVal (φs : Finset (Sentence OmegaArith)) : ℕ :=
+noncomputable def maxOmegaVal (φs : Finset (Sentence OmegaArith)) : ℝ :=
   if h : (coefs φs).Nonempty then (coefs φs).max' h + 1 else 0
 
 noncomputable instance FinStruct {φs : Finset (Sentence OmegaArith)} :
-  Structure OmegaArith (NatWithFiniteOmega (maxOmegaVal φs)) :=
+  Structure OmegaArith (RWithFiniteOmega (maxOmegaVal φs)) :=
 FinStruct' (maxOmegaVal φs)
 
-instance NormalArith : Structure Arith (NatWithFiniteOmega n) :=
+noncomputable instance NormalArith : Structure Arith (RWithFiniteOmega n) :=
 by
-  simp [NatWithFiniteOmega]
+  simp only [RWithFiniteOmega]
   exact standardModel
 
 
@@ -155,29 +142,37 @@ by
   injection eq with hn hl hR hts
   rw [Function.funext_iff] at hts
   have := hts 0
-  simp at this  -- this is bad style; `simp?`'s output would be better
-  injection this
+  simp only [Term.relabel, Term.func.injEq, heq_eq_eq, and_true, true_and] at this   -- this is bad style; `simp?`'s output would be better
+  injection this with h
+  revert h
+  apply Nat.cast_injective
 
 
 lemma getNOmega : getN (omegaGtN n) isLt = n :=
 by
   simp [getN]
-  -- hmpf
-  unfold OmegaGreater at isLt
-  simp [Membership.mem, Set.Mem] at isLt
-  have h : omegaGtN n = omegaGtN (Classical.choose isLt) :=
+  -- hmpf. This is surely a lemma.
+  have h : omegaGtN (Classical.choose isLt) = omegaGtN n:=
   by
-    apply @Classical.choose_spec _ (λ m ↦ omegaGtN n = omegaGtN m)
-  apply omegaGtN_inj; rw [← h]
+    unfold OmegaGreater at isLt
+    simp [Membership.mem, Set.Mem] at isLt
+    unfold Set.range at isLt
+    unfold setOf at isLt
+    whnf at isLt
+    apply (@Classical.choose_spec _ _ isLt)
+  apply omegaGtN_inj; apply h
 
-instance expantionFinOmega : LHom.IsExpansionOn liftStandard (NatWithFiniteOmega n) :=
+instance expantionFinOmega : LHom.IsExpansionOn liftStandard (RWithFiniteOmega n) :=
 by
   constructor
   . intros n; cases' n with n
-    . simp [Arith, Sequence₂]
-    . intros
-      exfalso
-      apply emptyFuncs; trivial
+    . simp [Arith, Sequence₂, Structure.funMap]
+    . cases' n with n
+      . simp [Arith, Sequence₂]
+      . cases' n with n
+        . simp [Arith, Sequence₂]
+          intros; trivial
+        . simp [Arith]
   . intros n; cases' n with n; simp [Arith, Sequence₂]
     cases' n with n; simp [Arith, Sequence₂]
     cases' n with n
@@ -188,7 +183,7 @@ by
 
 lemma FinStructModel {T : Finset (Sentence OmegaArith)} :
   ↑ T ⊆ OmegaGreater → S ⊆ ArithTruths →
-  NatWithFiniteOmega (maxOmegaVal T) ⊨ ↑T ∪ S :=
+  RWithFiniteOmega (maxOmegaVal T) ⊨ ↑T ∪ S :=
 by
   intros ltOmega ltArith
   apply (@Model.mk _ _ (@FinStruct T))
@@ -197,9 +192,8 @@ by
   . have h' : φ ∈ OmegaGreater := by apply ltOmega; trivial
     unfold OmegaGreater at h'
     cases' h' with n h'
-    rw [h'] at h
-    rw [h']
-    simp [omegaGtN, Realize, constantMap]
+    cases' h' with _ h'
+    simp [omegaGtN, Realize, constantMap, Structure.RelMap, Structure.funMap]
     unfold maxOmegaVal
     have nIsCoef : n ∈ coefs T :=
     by
@@ -211,12 +205,13 @@ by
         apply getNOmega
     have nonEmpty : (coefs T).Nonempty := by exists n
     rw [dite_cond_eq_true] <;> try (simp; trivial)
-    suffices n ≤ (Finset.max' (coefs T)) nonEmpty
+    suffices ↑n ≤ (Finset.max' (coefs T)) nonEmpty
     by -- what is the one liner here!!!?
-      apply Nat.lt_of_le_pred
-      simp [Nat.pred]
-      rw [Nat.pred_succ]
-      trivial
+      sorry
+      -- apply Nat.lt_of_le_pred
+      -- simp [Nat.pred]
+      -- rw [Nat.pred_succ]
+      -- trivial
     apply Finset.le_max'; trivial
   . have h' : φ ∈ ArithTruths := by apply ltArith; trivial
     unfold ArithTruths at h'
@@ -224,7 +219,7 @@ by
     cases' h' with h₁ h₂
     rw [← h₁]
     rw [LHom.realize_onSentence]
-    simp [NatWithFiniteOmega]
+    simp [RWithFiniteOmega]
     trivial
 
 lemma FiniteOmegaGreaterIsSat {T : Finset (Sentence OmegaArith)} :
@@ -232,9 +227,11 @@ lemma FiniteOmegaGreaterIsSat {T : Finset (Sentence OmegaArith)} :
 by
   intros lt_om lt_arith
   constructor
-  apply (@ModelType.mk _ _ _ (@FinStruct T) (FinStructModel _ _))
+  apply (@ModelType.mk _ _ _ (@FinStruct T) (FinStructModel _ _) instNonemptyROmega)
   . trivial
   . trivial
+  -- FIXME: make this a unification goal
+  . exact 0
 
 lemma NonStandardFinite : IsFinitelySatisfiable NonStandardLT :=
 by
@@ -270,20 +267,17 @@ by
   rw [isSatisfiable_iff_isFinitelySatisfiable]
   exact NonStandardFinite
 
+#print ModelType
+#print IsSatisfiable
+#print Nonempty
+
+-- These are the (or at least some) actual non standard reals!
+def NonStandardReals : Type :=
+  let model := Classical.choice NonStandardExists;
+  ↑model
+
+#print NonStandardReals
+
+instance isNSField : Field NonStandardReals := sorry
+
 end NonStandard
-
-section FinitaryPHP
-
--- Infinite with infinite fiber
-#check Finite.exists_infinite_fiber
--- Infinite with fiber > 2
-#check Finite.exists_ne_map_eq_of_infinite
--- Finite with fiber > 2
-#check Fintype.exists_ne_map_eq_of_card_lt
-#print Set
-#print Infinite
-#print Finite
-
-
-
-end FinitaryPHP
