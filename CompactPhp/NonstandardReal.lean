@@ -22,15 +22,18 @@ and modelling style.
 inductive RelNames :=
 | ltName : RelNames
 
+inductive UnOpNames :=
+| negName : UnOpNames
+| invName : UnOpNames
+
 inductive BinOpNames :=
 | plusName : BinOpNames
 | timesName : BinOpNames
-| divName : BinOpNames
 
--- The language with all of ℕ as constants (0 arity fun symbols),
+-- The language with all of ℚ as constants (0 arity fun symbols),
 -- no single argument function symbols
 -- a couple binary functions
-def Arith : Language := Language.mk₂ ℚ Empty BinOpNames Empty RelNames
+def Arith : Language := Language.mk₂ ℚ UnOpNames BinOpNames Empty RelNames
 
 -- The language with all of NS as constants, and a single binary relation.
 def OmegaArith : Language :=
@@ -44,7 +47,7 @@ by
 def liftConsts (n : ℕ) : Arith.Functions n → OmegaArith.Functions n :=
   match n with
   | 0 => λ (x : ℚ) ↦ NS.standard x
-  | .succ m => λ (h : Arith.Functions (.succ m)) ↦ h -- how do I unfold the type here?
+  | .succ m => λ (h : Arith.Functions (.succ m)) ↦ h
 
 -- possibly should use whatever lean mechanism auto lifts N to R?
 @[simp]
@@ -53,8 +56,14 @@ def liftStandard : Arith →ᴸ OmegaArith := ⟨liftConsts, λ _ r ↦ r⟩
 @[simp]
 noncomputable instance standardModel : Structure Arith ℝ :=
   Structure.mk₂ (λ c ↦ c)
-    (λ h ↦ h.elim )
-    (λ h ↦ match h with | .plusName => (. + .) | .timesName => (. * .) | .divName => (. / .))
+    (λ h ↦ match h with
+      | .negName => (- .)
+      | .invName => (.⁻¹)
+    )
+    (λ h ↦ match h with
+     | .plusName => (. + .)
+     | .timesName => (. * .)
+    )
     (λ h ↦ h.elim)
     (λ _ c₁ c₂ ↦ c₁ < c₂)
 
@@ -84,9 +93,6 @@ lessThan.formula₂ (Constants.term (NS.standard n)) (Constants.term NS.ω)
 def OmegaGreater : Theory OmegaArith := Set.range omegaGtN
 -- { omegaGtN n | n : ℕ }
 -- λ φ ↦ ∃ n : ℕ, φ = omegaGtN n
-
-#check Set.mem_image
-
 
 def NonStandardLT := ArithTruths ∪ OmegaGreater
 
@@ -169,6 +175,7 @@ by
     . simp [Arith, Sequence₂, Structure.funMap]
     . cases' n with n
       . simp [Arith, Sequence₂]
+        intros; trivial
       . cases' n with n
         . simp [Arith, Sequence₂]
           intros; trivial
@@ -207,11 +214,11 @@ by
     rw [dite_cond_eq_true] <;> try (simp; trivial)
     suffices ↑n ≤ (Finset.max' (coefs T)) nonEmpty
     by -- what is the one liner here!!!?
-      sorry
-      -- apply Nat.lt_of_le_pred
-      -- simp [Nat.pred]
-      -- rw [Nat.pred_succ]
-      -- trivial
+      norm_cast
+      apply Nat.lt_of_le_pred
+      simp [Nat.pred]
+      rw [Nat.pred_succ]
+      trivial
     apply Finset.le_max'; trivial
   . have h' : φ ∈ ArithTruths := by apply ltArith; trivial
     unfold ArithTruths at h'
@@ -272,12 +279,105 @@ by
 #print Nonempty
 
 -- These are the (or at least some) actual non standard reals!
-def NonStandardReals : Type :=
+def NSR : Type :=
   let model := Classical.choice NonStandardExists;
   ↑model
 
-#print NonStandardReals
+#print Structure
 
-instance isNSField : Field NonStandardReals := sorry
+noncomputable instance omegaArithNST : Structure OmegaArith NSR := by
+  simp [NSR]
+  exact (Classical.choice NonStandardExists).struc
+  done
+
+#print NSR
+
+#check Term.realize
+
+#check Empty.elim
+
+notation:50 "⟦" t "⟧" =>
+ @Term.realize OmegaArith NSR _ _    ((λ h ↦ Empty.elim h) : Empty → NSR) t
+
+#print Term
+
+#print OmegaArith
+
+#print Language.Constants
+
+-- #eval OmegaArith.Constants
+
+#check (NS.standard 0 : OmegaArith.Constants)
+
+def myzero : OmegaArith.Constants := NS.standard 0
+
+#check Constants.term myzero
+
+#check
+  @Term.realize OmegaArith NSR _ _
+   ((λ h ↦ h.elim) : Empty → NSR)
+   (Constants.term myzero)
+
+#print Model
+#print Theory
+#print Realize
+
+open Sentence
+
+instance modelsNS : NSR ⊨ NonStandardLT := (Classical.choice NonStandardExists).is_model
+
+-- Fixme: make this a coercion?
+noncomputable def QtoNS : ℚ → NSR := λ q ↦ @constantMap OmegaArith _ _ $ NS.standard q
+
+noncomputable def negNS : NSR → NSR :=
+  λ x ↦ @Structure.funMap OmegaArith _ _ 1 UnOpNames.negName ![x]
+
+noncomputable def invNS : NSR → NSR :=
+  λ x ↦ @Structure.funMap OmegaArith _ _ 1 UnOpNames.invName ![x]
+
+noncomputable def addNS : NSR → NSR → NSR :=
+  λ x y ↦ @Structure.funMap OmegaArith _ _ 2 BinOpNames.plusName ![x, y]
+
+noncomputable def mulNS : NSR → NSR → NSR :=
+  λ x y ↦ @Structure.funMap OmegaArith _ _ 2 BinOpNames.timesName ![x, y]
+
+#print RatCast
+
+#check Term.realize_constants
+#check Term.realize_con
+
+#check constantMap
+#check Structure.funMap
+
+#print Field
+
+-- This is gonna be pretty darn useful
+theorem overspill : ∀ φ : Sentence Arith,
+  ℝ ⊨ φ → NSR ⊨ LHom.onSentence liftStandard φ := sorry
+
+-- They inherit the field structure from ℝ.
+instance isNSField : Field NSR where
+  add := addNS
+  add_assoc := _
+  zero := QtoNS 0
+  zero_add := _
+  add_zero := _
+  add_comm := _
+  mul := mulNS
+  left_distrib := _
+  right_distrib := _
+  zero_mul := _
+  mul_zero := _
+  mul_assoc := _
+  one := QtoNS 1
+  one_mul := _
+  mul_one := _
+  neg := negNS
+  add_left_neg := _
+  mul_comm := _
+  inv := invNS
+  exists_pair_ne := _
+  mul_inv_cancel := _
+  inv_zero := _
 
 end NonStandard
