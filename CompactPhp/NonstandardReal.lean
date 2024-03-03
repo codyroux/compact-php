@@ -293,16 +293,16 @@ noncomputable instance omegaArithNST : Structure OmegaArith NSR := by
 #print NSR
 
 #check Term.realize
+#check Sentence.Realize
 
 #check Empty.elim
 
-notation:50 "⟦" t "⟧" =>
- @Term.realize OmegaArith NSR _ _    ((λ h ↦ Empty.elim h) : Empty → NSR) t
+notation:50 "(|" φ "|)" => NSR ⊨ φ
 
 #print Term
 
 #print OmegaArith
-
+#print Structure
 #print Language.Constants
 
 -- #eval OmegaArith.Constants
@@ -350,15 +350,78 @@ noncomputable def mulNS : NSR → NSR → NSR :=
 #check Structure.funMap
 
 #print Field
+#check Model.realize_of_mem
+
+#print OmegaArith
+#check OmegaArith.Constants
+
+def zero : Language.Constants OmegaArith := NS.standard 0
+
+#check Constants.term zero =' Constants.term (NS.standard 0)
+
+#check NSR ⊨ Constants.term zero =' Constants.term (NS.standard 0)
+#check (| Constants.term zero =' Constants.term (NS.standard 0) |)
+#check (| ∀' (Constants.term zero =' &0) |)
+
+lemma modelSatisfies : φ ∈ NonStandardLT → NSR ⊨ φ :=
+by
+  apply (@Model.realize_of_mem _ _ _ _ modelsNS)
 
 -- This is gonna be pretty darn useful
 theorem overspill : ∀ φ : Sentence Arith,
-  ℝ ⊨ φ → NSR ⊨ LHom.onSentence liftStandard φ := sorry
+  ℝ ⊨ φ → NSR ⊨ LHom.onSentence liftStandard φ :=
+by
+  intro φ satR
+  apply modelSatisfies
+  unfold NonStandardLT
+  left; whnf
+  exists φ
+
+lemma interpTrue : ∀ φ : Sentence OmegaArith, NSR ⊨ φ → (| φ |) :=
+by
+  intros; trivial
+
+#check func
+
+def addSyn : Arith.Functions 2 := BinOpNames.plusName
+
+#check congrArg₂
+
+#print LHom.onTerm
+#print Term.brecOn
+
+lemma addNS_assoc : ∀ a b c : NSR, addNS (addNS a b) c = addNS a (addNS b c) :=
+by
+  let φ : Sentence Arith := ∀' ∀' ∀' (Functions.apply₂ addSyn (Functions.apply₂ addSyn &2 &1) (&0)
+    =' Functions.apply₂ addSyn (&2) (Functions.apply₂ addSyn &1 &0))
+  let φ' : Sentence OmegaArith := ∀' ∀' ∀' (Functions.apply₂ addSyn (Functions.apply₂ addSyn &2 &1) (&0)
+    =' Functions.apply₂ addSyn (&2) (Functions.apply₂ addSyn &1 &0))
+  have h : LHom.onSentence liftStandard φ = φ' :=
+  by -- some pain here: how to alleviate?
+    simp [φ]
+    simp [LHom.onSentence, LHom.onFormula, Functions.apply₂]
+    apply congrArg₂
+    . apply congrArg₂; trivial
+      repeat apply List.ofFn_inj.mp; simp
+    . apply congrArg₂; trivial
+      repeat apply List.ofFn_inj.mp; simp
+  suffices
+   (| φ' |)
+    by -- bleaugh
+      simp [Realize, Formula.Realize, addSyn, Structure.funMap, Fin.snoc, Structure.funMap] at this
+      simp [addNS]
+      intros; apply this
+  rw [← h]
+  apply overspill
+  simp [Realize, Formula.Realize, addSyn, Fin.snoc]
+  -- finally!
+  intros; ring
+
 
 -- They inherit the field structure from ℝ.
 instance isNSField : Field NSR where
   add := addNS
-  add_assoc := _
+  add_assoc := addNS_assoc
   zero := QtoNS 0
   zero_add := _
   add_zero := _
