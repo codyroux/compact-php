@@ -283,44 +283,17 @@ def NSR : Type :=
   let model := Classical.choice NonStandardExists;
   ↑model
 
-#print Structure
-
+-- To grab the actual non-standard model from the proof of its existence
+-- we need to invoke choice. Maybe this can be avoided if we dig into
+-- the proof (but choice is used in the proof anyways).
 noncomputable instance omegaArithNST : Structure OmegaArith NSR := by
   simp [NSR]
   exact (Classical.choice NonStandardExists).struc
   done
 
-#print NSR
 
-#check Term.realize
-#check Sentence.Realize
+notation (priority := high) "⟦" φ "⟧" => NSR ⊨ φ
 
-#check Empty.elim
-
-notation:50 "(|" φ "|)" => NSR ⊨ φ
-
-#print Term
-
-#print OmegaArith
-#print Structure
-#print Language.Constants
-
--- #eval OmegaArith.Constants
-
-#check (NS.standard 0 : OmegaArith.Constants)
-
-def myzero : OmegaArith.Constants := NS.standard 0
-
-#check Constants.term myzero
-
-#check
-  @Term.realize OmegaArith NSR _ _
-   ((λ h ↦ h.elim) : Empty → NSR)
-   (Constants.term myzero)
-
-#print Model
-#print Theory
-#print Realize
 
 open Sentence
 
@@ -341,27 +314,13 @@ noncomputable def addNS : NSR → NSR → NSR :=
 noncomputable def mulNS : NSR → NSR → NSR :=
   λ x y ↦ @Structure.funMap OmegaArith _ _ 2 BinOpNames.timesName ![x, y]
 
-#print RatCast
-
-#check Term.realize_constants
-#check Term.realize_con
-
-#check constantMap
-#check Structure.funMap
-
-#print Field
-#check Model.realize_of_mem
-
-#print OmegaArith
-#check OmegaArith.Constants
-
 def zero : Language.Constants OmegaArith := NS.standard 0
 
 #check Constants.term zero =' Constants.term (NS.standard 0)
 
 #check NSR ⊨ Constants.term zero =' Constants.term (NS.standard 0)
-#check (| Constants.term zero =' Constants.term (NS.standard 0) |)
-#check (| ∀' (Constants.term zero =' &0) |)
+#check ⟦ Constants.term zero =' Constants.term (NS.standard 0) ⟧
+#check ⟦ ∀' (Constants.term zero =' &0) ⟧
 
 lemma modelSatisfies : φ ∈ NonStandardLT → NSR ⊨ φ :=
 by
@@ -377,18 +336,12 @@ by
   left; whnf
   exists φ
 
-lemma interpTrue : ∀ φ : Sentence OmegaArith, NSR ⊨ φ → (| φ |) :=
+lemma interpTrue : ∀ φ : Sentence OmegaArith, NSR ⊨ φ → ⟦ φ ⟧ :=
 by
   intros; trivial
 
-#check func
-
 def addSyn : Arith.Functions 2 := BinOpNames.plusName
 
-#check congrArg₂
-
-#print LHom.onTerm
-#print Term.brecOn
 
 lemma addNS_assoc : ∀ a b c : NSR, addNS (addNS a b) c = addNS a (addNS b c) :=
 by
@@ -406,7 +359,7 @@ by
     . apply congrArg₂; trivial
       repeat apply List.ofFn_inj.mp; simp
   suffices
-   (| φ' |)
+   ⟦φ'⟧
     by -- bleaugh
       simp [Realize, Formula.Realize, addSyn, Structure.funMap, Fin.snoc, Structure.funMap] at this
       simp [addNS]
