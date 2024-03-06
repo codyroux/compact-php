@@ -1,6 +1,9 @@
 import Mathlib.ModelTheory.Satisfiability
 import Mathlib.Data.Fintype.Card
 import Mathlib.Data.Real.Basic
+import Mathlib.Algebra.Order.Field.Defs
+import Lean
+
 open FirstOrder
 open FirstOrder.Language
 open FirstOrder.Language.Theory
@@ -342,9 +345,57 @@ by
 
 def addSyn : Arith.Functions 2 := BinOpNames.plusName
 
+def toArith : ℚ → Language.Constants Arith := λ q ↦ q
+
+open Lean
+
+#print Lean.Expr
+#check Lean.Expr.lit
+#check Expr.isNatLit
+#check Expr.natLit?
+
+#print MonadError
+
+def reifyNFConst : Expr → Except String (Term Arith (FVarId ⊕ Fin n))
+  -- FIXME: it is harrowing to match on a num!
+  | .app (.app (.app _ _) (.lit (.natVal k)) ) _ =>
+       .ok $ Constants.term $ toArith k
+  | .app (.app (.const `addNS _) t₁) t₂ => do
+    let v₁ ← reifyNFConst t₁
+    let v₂ ← reifyNFConst t₂
+    .ok $ Functions.apply₂ addSyn v₁ v₂
+  | .fvar name => .ok $ Term.var $ .inl name
+  | _ => .error "unhandled case"
+
+#check Constants.term
+#check reifyNFConst (Lean.mkRawNatLit 0)
+#reduce Lean.mkNatLit 0 -- we want this one though!
+#reduce Lean.mkRawNatLit 0 -- easy to confuse with this one
+#reduce Expr.getAppFnArgs (Lean.mkRawNatLit 0)
+#reduce (Lean.mkRawNatLit 0).natLit?
+#whnf @reifyNFConst 0 (mkNatLit 0)
+#whnf Except.ok (@Constants.term _ Empty $ toArith 0)
+
+
+lemma foobaz : Except.ok (@Constants.term _ _ $ toArith 0) =
+  @reifyNFConst 0 (Lean.mkNatLit 0) :=
+by
+  -- reduce
+  rfl
+
 
 lemma addNS_assoc : ∀ a b c : NSR, addNS (addNS a b) c = addNS a (addNS b c) :=
 by
+  have h := (@reifyNFConst 0 (Lean.mkNatLit 0))
+  -- for now no quantifiers
+  intros a b c
+  let t := @reifyNFConst 3
+    (.app
+      (.app (.app (.const `addNS []) (.fvar $ FVarId.mk `a)) (.fvar $ FVarId.mk `b))
+       (.fvar $ FVarId.mk `c))
+  let t := @reifyNFConst 3 (Lean.mkNatLit 0)
+  simp [mkNatLit, reifyNFConst] at t
+
   let φ : Sentence Arith := ∀' ∀' ∀' (Functions.apply₂ addSyn (Functions.apply₂ addSyn &2 &1) (&0)
     =' Functions.apply₂ addSyn (&2) (Functions.apply₂ addSyn &1 &0))
   let φ' : Sentence OmegaArith := ∀' ∀' ∀' (Functions.apply₂ addSyn (Functions.apply₂ addSyn &2 &1) (&0)
@@ -372,7 +423,7 @@ by
 
 
 -- They inherit the field structure from ℝ.
-instance isNSField : Field NSR where
+instance isNSField : LinearOrderedField NSR where
   add := addNS
   add_assoc := addNS_assoc
   zero := QtoNS 0
@@ -395,5 +446,14 @@ instance isNSField : Field NSR where
   exists_pair_ne := _
   mul_inv_cancel := _
   inv_zero := _
+  le := _
+  le_refl := _
+  le_trans := _
+  le_antisymm := _
+  add_le_add_left := _
+  zero_le_one := _
+  mul_pos := _
+  le_total := _
+  decidableLE := _
 
 end NonStandard
