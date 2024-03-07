@@ -356,45 +356,143 @@ open Lean
 
 #print MonadError
 
-def reifyNFConst : Expr → Except String (Term Arith (FVarId ⊕ Fin n))
+def reifyConst : Expr → Except String (Term Arith (Empty ⊕ Fin n))
   -- FIXME: it is harrowing to match on a num!
   | .app (.app (.app _ _) (.lit (.natVal k)) ) _ =>
        .ok $ Constants.term $ toArith k
   | .app (.app (.const `addNS _) t₁) t₂ => do
-    let v₁ ← reifyNFConst t₁
-    let v₂ ← reifyNFConst t₂
-    .ok $ Functions.apply₂ addSyn v₁ v₂
-  | .fvar name => .ok $ Term.var $ .inl name
-  | _ => .error "unhandled case"
+    let v₁ ← reifyConst t₁
+    let v₂ ← reifyConst t₂
+    return Functions.apply₂ addSyn v₁ v₂
+  | .fvar _name => .error "Free variables are not handled for the moment"
+  | .bvar index =>
+    if h : 0 < n
+    then
+      .ok &(Fin.ofNat' index h)
+    else .error "The bound variable set is empty"
+  | _ => .error "reifyConst : unhandled case"
+
+def reifyBoundFormula (n : ℕ): Expr → Except String (BoundedFormula Arith Empty n)
+  -- Let's assume that all equalities are of the right type, I guess.
+  -- let's see if this bites us
+| .app (.app (.app (.const `Eq []) _) t₁) t₂ => do
+  let v₁ ← reifyConst t₁
+  let v₂ ← reifyConst t₂
+  .ok $ v₁ =' v₂
+| .app (.app (.app (.const `LT []) _) t₁) t₂ => .error "We don't handle < yet!"
+| .forallE _ _ body _ => do
+  let vbody ← reifyBoundFormula (.succ n) body
+  return ∀' vbody
+| _ => .error "reifyNFBoundedFormula: unhandled case"
 
 #check Constants.term
-#check reifyNFConst (Lean.mkRawNatLit 0)
-#reduce Lean.mkNatLit 0 -- we want this one though!
-#reduce Lean.mkRawNatLit 0 -- easy to confuse with this one
-#reduce Expr.getAppFnArgs (Lean.mkRawNatLit 0)
-#reduce (Lean.mkRawNatLit 0).natLit?
-#whnf @reifyNFConst 0 (mkNatLit 0)
+#check reifyConst (Lean.mkRawNatLit 0)
+#whnf Lean.mkNatLit 0 -- we want this one though!
+#whnf Lean.mkRawNatLit 0 -- easy to confuse with this one
+#whnf Expr.getAppFnArgs (Lean.mkRawNatLit 0)
+#whnf (Lean.mkRawNatLit 0).natLit?
+#whnf @reifyConst 0 (mkNatLit 0)
 #whnf Except.ok (@Constants.term _ Empty $ toArith 0)
 
 
 lemma foobaz : Except.ok (@Constants.term _ _ $ toArith 0) =
-  @reifyNFConst 0 (Lean.mkNatLit 0) :=
+  @reifyConst 0 (Lean.mkNatLit 0) :=
 by
   -- reduce
   rfl
 
 
+
+lemma foobaz' : Except.ok (&0) =
+  @reifyConst 1 (Lean.mkBVar 0) :=
+by
+  rfl
+
+lemma foobaz'' :
+  Except.ok
+    (Functions.apply₂ addSyn
+      (&0)
+      (Constants.term $ toArith 0))
+  =
+  @reifyConst 1 (
+    .app
+      (.app (.const `addNS []) (.bvar 0))
+      (Lean.mkNatLit 0))
+
+:=
+by
+  rfl
+
+lemma foobaz₄ :
+ let a : ℕ := 2
+ let b : ℕ := 1
+ let c : ℕ := 0
+ @reifyConst  3
+    (.app (.app (.const `addNS [])
+      (.app
+       (.app (.const `addNS []) (Lean.mkBVar a)) (Lean.mkBVar b))) (Lean.mkBVar c))
+       =
+      .ok
+       (Functions.apply₂ addSyn
+         (Functions.apply₂ addSyn (& a) (& b))
+         (& c))
+       :=
+by
+  rfl
+
+#check @reifyBoundFormula 0 $
+  Expr.forallE `a (.const `NSR []) (.app (.app (.app (.const `Eq []) (.const `NSR []))
+  (.app
+    (.app (.const `addNS []) (.bvar 0))
+    (Lean.mkNatLit 0)))
+    (.bvar 0))
+  .default
+
+
+-- torture to read and write. Let's move on to using tactics to get these folks.
+lemma foobaz₅ :
+  (Except.ok
+    (∀'
+      (Functions.apply₂ addSyn (&0) (Constants.term $ toArith 0)
+    =' (&0))))
+  =
+  (@reifyBoundFormula 0 $
+  Expr.forallE `a (.const `NSR []) (.app (.app (.app (.const `Eq []) (.const `NSR []))
+  (.app
+    (.app (.const `addNS []) (.bvar 0))
+    (Lean.mkNatLit 0)))
+    (.bvar 0))
+  .default)
+:=
+by
+  rfl
+
+#print Sentence
+#print Formula
+#print Except
+#print ToMessageData
+#print MessageData
+
+def reifySentence : Expr → Except String (Sentence Arith) :=
+  reifyBoundFormula 0
+
+elab "reify_goal_fol" : tactic =>
+ Lean.Elab.Tactic.withMainContext do
+  let goal ← Lean.Elab.Tactic.getMainGoal
+  let goalDec ← goal.getDecl
+  let goalTy := goalDec.type
+  let newRepr := reifySentence goalTy
+  match newRepr with
+  | .ok φ =>
+    Lean.Meta.throwTacticEx `Mikey goal m!"we did it!"
+    return
+  | .error s => Lean.Meta.throwTacticEx `reify_goal_fol goal m!"{s}"
+
 lemma addNS_assoc : ∀ a b c : NSR, addNS (addNS a b) c = addNS a (addNS b c) :=
 by
-  have h := (@reifyNFConst 0 (Lean.mkNatLit 0))
-  -- for now no quantifiers
-  intros a b c
-  let t := @reifyNFConst 3
-    (.app
-      (.app (.app (.const `addNS []) (.fvar $ FVarId.mk `a)) (.fvar $ FVarId.mk `b))
-       (.fvar $ FVarId.mk `c))
-  let t := @reifyNFConst 3 (Lean.mkNatLit 0)
-  simp [mkNatLit, reifyNFConst] at t
+
+  -- fails for now
+  reify_goal_fol
 
   let φ : Sentence Arith := ∀' ∀' ∀' (Functions.apply₂ addSyn (Functions.apply₂ addSyn &2 &1) (&0)
     =' Functions.apply₂ addSyn (&2) (Functions.apply₂ addSyn &1 &0))
@@ -409,8 +507,7 @@ by
       repeat apply List.ofFn_inj.mp; simp
     . apply congrArg₂; trivial
       repeat apply List.ofFn_inj.mp; simp
-  suffices
-   ⟦φ'⟧
+  suffices ⟦φ'⟧
     by -- bleaugh
       simp [Realize, Formula.Realize, addSyn, Structure.funMap, Fin.snoc, Structure.funMap] at this
       simp [addNS]
