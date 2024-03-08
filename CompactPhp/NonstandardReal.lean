@@ -38,6 +38,7 @@ inductive BinOpNames :=
 -- a couple binary functions
 def Arith : Language := Language.mk₂ ℚ UnOpNames BinOpNames Empty RelNames
 
+
 -- The language with all of NS as constants, and a single binary relation.
 def OmegaArith : Language :=
 ⟨ λ n ↦ if n = 0 then NS else Arith.Functions n, Arith.Relations⟩
@@ -346,6 +347,7 @@ by
 def addSyn : Arith.Functions 2 := BinOpNames.plusName
 
 def toArith : ℚ → Language.Constants Arith := λ q ↦ q
+def toOmegaArith : ℚ → Language.Constants OmegaArith := λ q ↦ NS.standard q
 
 open Lean
 
@@ -372,10 +374,27 @@ def reifyConst : Expr → Except String (Term Arith (Empty ⊕ Fin n))
     else .error "The bound variable set is empty"
   | _ => .error "reifyConst : unhandled case"
 
+-- FIXME: refactor this
+def reifyConst' : Expr → Except String (Term OmegaArith (Empty ⊕ Fin n))
+  -- FIXME: it is harrowing to match on a num!
+  | .app (.app (.app _ _) (.lit (.natVal k)) ) _ =>
+       .ok $ Constants.term $ toOmegaArith k
+  | .app (.app (.const `addNS _) t₁) t₂ => do
+    let v₁ ← reifyConst' t₁
+    let v₂ ← reifyConst' t₂
+    return Functions.apply₂ addSyn v₁ v₂
+  | .fvar _name => .error "Free variables are not handled for the moment"
+  | .bvar index =>
+    if h : 0 < n
+    then
+      .ok &(Fin.ofNat' index h)
+    else .error "The bound variable set is empty"
+  | _ => .error "reifyConst : unhandled case"
+
 def reifyBoundFormula (n : ℕ): Expr → Except String (BoundedFormula Arith Empty n)
   -- Let's assume that all equalities are of the right type, I guess.
   -- let's see if this bites us
-| .app (.app (.app (.const `Eq []) _) t₁) t₂ => do
+| .app (.app (.app (.const `Eq _) (.const `NSR _)) t₁) t₂ => do
   let v₁ ← reifyConst t₁
   let v₂ ← reifyConst t₂
   .ok $ v₁ =' v₂
@@ -383,7 +402,20 @@ def reifyBoundFormula (n : ℕ): Expr → Except String (BoundedFormula Arith Em
 | .forallE _ _ body _ => do
   let vbody ← reifyBoundFormula (.succ n) body
   return ∀' vbody
-| _ => .error "reifyNFBoundedFormula: unhandled case"
+| expr => .error s!"reifyNFBoundedFormula: unhandled case {expr}"
+
+def reifyBoundFormula' (n : ℕ): Expr → Except String (BoundedFormula OmegaArith Empty n)
+  -- Let's assume that all equalities are of the right type, I guess.
+  -- let's see if this bites us
+| .app (.app (.app (.const `Eq _) (.const `NSR _)) t₁) t₂ => do
+  let v₁ ← reifyConst' t₁
+  let v₂ ← reifyConst' t₂
+  .ok $ v₁ =' v₂
+| .app (.app (.app (.const `LT []) _) t₁) t₂ => .error "We don't handle < yet!"
+| .forallE _ _ body _ => do
+  let vbody ← reifyBoundFormula' (.succ n) body
+  return ∀' vbody
+| expr => .error s!"reifyNFBoundedFormula: unhandled case {expr}"
 
 #check Constants.term
 #check reifyConst (Lean.mkRawNatLit 0)
@@ -467,26 +499,32 @@ lemma foobaz₅ :
 by
   rfl
 
-#print Sentence
-#print Formula
-#print Except
-#print ToMessageData
-#print MessageData
-
 def reifySentence : Expr → Except String (Sentence Arith) :=
   reifyBoundFormula 0
+
+def reifySentence' : Expr → Except String (Sentence OmegaArith) :=
+  reifyBoundFormula' 0
+
+
 
 elab "reify_goal_fol" : tactic =>
  Lean.Elab.Tactic.withMainContext do
   let goal ← Lean.Elab.Tactic.getMainGoal
   let goalDec ← goal.getDecl
   let goalTy := goalDec.type
+  dbg_trace f!"goal: {goal.name}"
   let newRepr := reifySentence goalTy
   match newRepr with
   | .ok φ =>
-    Lean.Meta.throwTacticEx `Mikey goal m!"we did it!"
+    dbg_trace f!"we did it!"
+    -- now we need to convince Lean that this is our "old" goal.
+    -- It *should* be definitionally equal but...
+    -- ⟦ LHom.onSentence liftStandard φ ⟧
+    --- and then replace it... and apply `overspill,
+    -- and then ring or whatever
     return
   | .error s => Lean.Meta.throwTacticEx `reify_goal_fol goal m!"{s}"
+
 
 lemma addNS_assoc : ∀ a b c : NSR, addNS (addNS a b) c = addNS a (addNS b c) :=
 by
