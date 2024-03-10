@@ -306,6 +306,8 @@ instance modelsNS : NSR ⊨ NonStandardLT := (Classical.choice NonStandardExists
 -- Fixme: make this a coercion?
 noncomputable def QtoNS : ℚ → NSR := λ q ↦ @constantMap OmegaArith _ _ $ NS.standard q
 
+noncomputable instance ofNatNS (n : ℕ): OfNat NSR n := { ofNat := QtoNS n }
+
 noncomputable def negNS : NSR → NSR :=
   λ x ↦ @Structure.funMap OmegaArith _ _ 1 UnOpNames.negName ![x]
 
@@ -319,6 +321,9 @@ noncomputable def mulNS : NSR → NSR → NSR :=
   λ x y ↦ @Structure.funMap OmegaArith _ _ 2 BinOpNames.timesName ![x, y]
 
 def zero : Language.Constants OmegaArith := NS.standard 0
+
+def ltNF : NSR → NSR → Prop :=
+  λ x y ↦ @Structure.RelMap OmegaArith _ _ 2 RelNames.ltName ![x, y]
 
 #check Constants.term zero =' Constants.term (NS.standard 0)
 
@@ -349,14 +354,8 @@ def addSyn : Arith.Functions 2 := BinOpNames.plusName
 def toArith : ℚ → Language.Constants Arith := λ q ↦ q
 def toOmegaArith : ℚ → Language.Constants OmegaArith := λ q ↦ NS.standard q
 
+---------------------------------
 open Lean
-
-#print Lean.Expr
-#check Lean.Expr.lit
-#check Expr.isNatLit
-#check Expr.natLit?
-
-#print MonadError
 
 def reifyConst : Expr → Except String (Term Arith (Empty ⊕ Fin n))
   -- FIXME: it is harrowing to match on a num!
@@ -394,7 +393,7 @@ def reifyConst' : Expr → Except String (Term OmegaArith (Empty ⊕ Fin n))
 def reifyBoundFormula (n : ℕ): Expr → Except String (BoundedFormula Arith Empty n)
   -- Let's assume that all equalities are of the right type, I guess.
   -- let's see if this bites us
-| .app (.app (.app (.const `Eq _) (.const `NSR _)) t₁) t₂ => do
+| .app (.app (.app (.const `Eq _) _) t₁) t₂ => do
   let v₁ ← reifyConst t₁
   let v₂ ← reifyConst t₂
   .ok $ v₁ =' v₂
@@ -407,24 +406,16 @@ def reifyBoundFormula (n : ℕ): Expr → Except String (BoundedFormula Arith Em
 def reifyBoundFormula' (n : ℕ): Expr → Except String (BoundedFormula OmegaArith Empty n)
   -- Let's assume that all equalities are of the right type, I guess.
   -- let's see if this bites us
-| .app (.app (.app (.const `Eq _) (.const `NSR _)) t₁) t₂ => do
+| .app (.app (.app (.const `Eq _) _) t₁) t₂ => do
   let v₁ ← reifyConst' t₁
   let v₂ ← reifyConst' t₂
   .ok $ v₁ =' v₂
-| .app (.app (.app (.const `LT []) _) t₁) t₂ => .error "We don't handle < yet!"
+-- Not sure this is the pattern
+| .app (.app (.app (.const `LT _) _) t₁) t₂ => .error "We don't handle < yet!"
 | .forallE _ _ body _ => do
   let vbody ← reifyBoundFormula' (.succ n) body
   return ∀' vbody
 | expr => .error s!"reifyNFBoundedFormula: unhandled case {expr}"
-
-#check Constants.term
-#check reifyConst (Lean.mkRawNatLit 0)
-#whnf Lean.mkNatLit 0 -- we want this one though!
-#whnf Lean.mkRawNatLit 0 -- easy to confuse with this one
-#whnf Expr.getAppFnArgs (Lean.mkRawNatLit 0)
-#whnf (Lean.mkRawNatLit 0).natLit?
-#whnf @reifyConst 0 (mkNatLit 0)
-#whnf Except.ok (@Constants.term _ Empty $ toArith 0)
 
 
 lemma foobaz : Except.ok (@Constants.term _ _ $ toArith 0) =
@@ -505,7 +496,14 @@ def reifySentence : Expr → Except String (Sentence Arith) :=
 def reifySentence' : Expr → Except String (Sentence OmegaArith) :=
   reifyBoundFormula' 0
 
+def reifySentenceNoFail (e: Expr) : Sentence Arith :=
+  match reifySentence e with
+  | .ok φ => φ
+  -- I guess we just have to throw this in the garbage
+  | .error _   => .falsum
 
+def replaceGoal (e : Expr) : Prop :=
+  ⟦ LHom.onSentence liftStandard $ reifySentenceNoFail e ⟧
 
 elab "reify_goal_fol" : tactic =>
  Lean.Elab.Tactic.withMainContext do
@@ -513,25 +511,65 @@ elab "reify_goal_fol" : tactic =>
   let goalDec ← goal.getDecl
   let goalTy := goalDec.type
   dbg_trace f!"goal: {goal.name}"
-  let newRepr := reifySentence goalTy
-  match newRepr with
-  | .ok φ =>
-    dbg_trace f!"we did it!"
-    -- now we need to convince Lean that this is our "old" goal.
-    -- It *should* be definitionally equal but...
-    -- ⟦ LHom.onSentence liftStandard φ ⟧
-    --- and then replace it... and apply `overspill,
-    -- and then ring or whatever
-    return
-  | .error s => Lean.Meta.throwTacticEx `reify_goal_fol goal m!"{s}"
+  let newGoal := mkApp (mkConst ``replaceGoal) goalTy
+  let newGoal ← MVarId.replaceTargetDefEq goal newGoal
+  Elab.Tactic.replaceMainGoal [newGoal]
 
+elab "print_goal_expr" : tactic =>
+  Elab.Tactic.withMainContext do
+  let goal ← Elab.Tactic.getMainGoal
+  let goalDec ← goal.getDecl
+  let goalTy := goalDec.type
+  dbg_trace f!"{goalTy}"
+
+--------------------------
+
+#print func
+#print LHom.onSentence
+#print LHom.onBoundedFormula
+#print LHom.onTerm
+#print Constants.term
+
+lemma addNS_add_zero : ∀ a : NSR, addNS 0 a = a :=
+by
+/-   reify_goal_fol
+  apply overspill
+ -/
+  let φ : Sentence Arith :=
+   ∀' ((Functions.apply₂ addSyn (Constants.term (0 : ℚ)) (&0)) =' &0)
+  let φ' : Sentence OmegaArith :=
+   ∀' ((Functions.apply₂ addSyn (Constants.term (NS.standard 0)) (&0)) =' &0)
+  have h : LHom.onSentence liftStandard φ = φ' :=
+    by
+      simp [φ]
+      simp [LHom.onSentence, LHom.onFormula, Functions.apply₂]
+      apply congrArg₂
+      . apply congrArg₂; trivial
+        apply List.ofFn_inj.mp; simp
+        -- aaaaa
+        sorry
+      . rfl
+  suffices ⟦φ'⟧
+    by -- bleaugh
+      simp [Realize, Formula.Realize, addSyn, Structure.funMap, Fin.snoc, Structure.funMap] at this
+      simp [addNS]
+      intros; simp [OfNat.ofNat, QtoNS]
+      sorry
+  rw [← h]
+  apply overspill
+  simp [Realize, Formula.Realize, addSyn, Fin.snoc]
+  -- finally!
+  exact Mathlib.Tactic.Ring.cast_zero { out := rfl }
 
 lemma addNS_assoc : ∀ a b c : NSR, addNS (addNS a b) c = addNS a (addNS b c) :=
 by
 
-  -- fails for now
+/-   -- fails for now
   reify_goal_fol
-
+  unfold replaceGoal
+  apply overspill
+  simp [reifySentenceNoFail, reifySentence, reifyBoundFormula]
+ -/
   let φ : Sentence Arith := ∀' ∀' ∀' (Functions.apply₂ addSyn (Functions.apply₂ addSyn &2 &1) (&0)
     =' Functions.apply₂ addSyn (&2) (Functions.apply₂ addSyn &1 &0))
   let φ' : Sentence OmegaArith := ∀' ∀' ∀' (Functions.apply₂ addSyn (Functions.apply₂ addSyn &2 &1) (&0)
@@ -561,7 +599,7 @@ by
 instance isNSField : LinearOrderedField NSR where
   add := addNS
   add_assoc := addNS_assoc
-  zero := QtoNS 0
+  zero := 0
   zero_add := _
   add_zero := _
   add_comm := _
@@ -571,7 +609,7 @@ instance isNSField : LinearOrderedField NSR where
   zero_mul := _
   mul_zero := _
   mul_assoc := _
-  one := QtoNS 1
+  one := 1
   one_mul := _
   mul_one := _
   neg := negNS
@@ -581,7 +619,7 @@ instance isNSField : LinearOrderedField NSR where
   exists_pair_ne := _
   mul_inv_cancel := _
   inv_zero := _
-  le := _
+  le := λ x y ↦ ltNF x y ∨ x = y
   le_refl := _
   le_trans := _
   le_antisymm := _
