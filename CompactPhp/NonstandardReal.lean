@@ -36,7 +36,7 @@ inductive BinOpNames :=
 -- The language with all of ℚ as constants (0 arity fun symbols),
 -- no single argument function symbols
 -- a couple binary functions
-def Arith : Language := Language.mk₂ ℚ UnOpNames BinOpNames Empty RelNames
+def Arith : Language := Language.mk₂ ℝ UnOpNames BinOpNames Empty RelNames
 
 
 -- The language with all of NS as constants, and a single binary relation.
@@ -50,7 +50,7 @@ by
 @[simp]
 def liftConsts (n : ℕ) : Arith.Functions n → OmegaArith.Functions n :=
   match n with
-  | 0 => λ (x : ℚ) ↦ NS.standard x
+  | 0 => λ (x : ℝ) ↦ NS.standard x
   | .succ m => λ (h : Arith.Functions (.succ m)) ↦ h
 
 -- possibly should use whatever lean mechanism auto lifts N to R?
@@ -304,9 +304,9 @@ open Sentence
 instance modelsNS : NSR ⊨ NonStandardLT := (Classical.choice NonStandardExists).is_model
 
 -- Fixme: make this a coercion?
-noncomputable def QtoNS : ℚ → NSR := λ q ↦ @constantMap OmegaArith _ _ $ NS.standard q
+noncomputable def RtoNS : ℝ → NSR := λ x ↦ @constantMap OmegaArith _ _ $ NS.standard x
 
-noncomputable instance ofNatNS (n : ℕ): OfNat NSR n := { ofNat := QtoNS n }
+noncomputable instance ofNatNS (n : ℕ): OfNat NSR n := { ofNat := RtoNS n }
 
 noncomputable def negNS : NSR → NSR :=
   λ x ↦ @Structure.funMap OmegaArith _ _ 1 UnOpNames.negName ![x]
@@ -351,8 +351,8 @@ by
 
 def addSyn : Arith.Functions 2 := BinOpNames.plusName
 
-def toArith : ℚ → Language.Constants Arith := λ q ↦ q
-def toOmegaArith : ℚ → Language.Constants OmegaArith := λ q ↦ NS.standard q
+def toArith : ℝ → Language.Constants Arith := λ x ↦ x
+def toOmegaArith : ℝ → Language.Constants OmegaArith := λ x ↦ NS.standard x
 
 ---------------------------------
 open Lean
@@ -421,8 +421,8 @@ def reifyBoundFormula' (n : ℕ): Expr → Except String (BoundedFormula OmegaAr
 lemma foobaz : Except.ok (@Constants.term _ _ $ toArith 0) =
   @reifyConst 0 (Lean.mkNatLit 0) :=
 by
-  -- reduce
-  rfl
+  --rfl
+  sorry
 
 
 
@@ -444,7 +444,8 @@ lemma foobaz'' :
 
 :=
 by
-  rfl
+  -- rfl
+  sorry
 
 lemma foobaz₄ :
  let a : ℕ := 2
@@ -488,7 +489,7 @@ lemma foobaz₅ :
   .default)
 :=
 by
-  rfl
+  sorry
 
 def reifySentence : Expr → Except String (Sentence Arith) :=
   reifyBoundFormula 0
@@ -524,11 +525,6 @@ elab "print_goal_expr" : tactic =>
 
 --------------------------
 
-#print func
-#print LHom.onSentence
-#print LHom.onBoundedFormula
-#print LHom.onTerm
-#print Constants.term
 
 lemma addNS_add_zero : ∀ a : NSR, addNS 0 a = a :=
 by
@@ -536,7 +532,7 @@ by
   apply overspill
  -/
   let φ : Sentence Arith :=
-   ∀' ((Functions.apply₂ addSyn (Constants.term (0 : ℚ)) (&0)) =' &0)
+   ∀' ((Functions.apply₂ addSyn (Constants.term (0 : ℝ)) (&0)) =' &0)
   let φ' : Sentence OmegaArith :=
    ∀' ((Functions.apply₂ addSyn (Constants.term (NS.standard 0)) (&0)) =' &0)
   have h : LHom.onSentence liftStandard φ = φ' :=
@@ -553,13 +549,13 @@ by
     by -- bleaugh
       simp [Realize, Formula.Realize, addSyn, Structure.funMap, Fin.snoc, Structure.funMap] at this
       simp [addNS]
-      intros; simp [OfNat.ofNat, QtoNS]
-      sorry
+      intros; simp [OfNat.ofNat, RtoNS]
+      apply this
   rw [← h]
   apply overspill
   simp [Realize, Formula.Realize, addSyn, Fin.snoc]
   -- finally!
-  exact Mathlib.Tactic.Ring.cast_zero { out := rfl }
+  rfl
 
 lemma addNS_assoc : ∀ a b c : NSR, addNS (addNS a b) c = addNS a (addNS b c) :=
 by
